@@ -1,3 +1,4 @@
+
 # coding=utf-8
 
 import argparse
@@ -24,18 +25,18 @@ class PlaylistBuilder:
         self._session = None
 
     @property
-    def playlist(self):
-        if self._playlist is None:
-            print('A playlist is yet to be created.')
-        return self._playlist
-
-    @property
     def keylocation(self):
         return self._keylocation
 
     @keylocation.setter
     def keylocation(self, value):
         self._keylocation = value
+
+    @property
+    def playlist(self):
+        if self._playlist is None:
+            print('A playlist is yet to be created.')
+        return self._playlist
 
     @property
     def sub_reddit(self):
@@ -123,52 +124,58 @@ class PlaylistBuilder:
 
             print(Exception)
 
-    def sub_scraper(self):
+    def reddit_connection(self):
+        """
+        Method for establishing a connection to Reddit using the PRAW library,
+        returns a session object.
+        """
+
+        try:
+            r = praw.Reddit(user_agent='Spotty v0.1')
+            return r
+
+        except requests.HTTPError as e:
+            if e.errno in [429, 500, 502, 503, 504]:
+                print("Reddit is down (error %s), sleeping..." % e.errno)
+                time.sleep(60)
+                pass
+            else:
+                raise e
+
+        except Exception as e:
+            print("couldn't Reddit: %s" % str(e))
+
+    def reddit_scrape(self, session):
         """
         Method for scraping all potential tracks from a subreddit. This is
         currently defaulted to 'listentothis' and scrapes top posts from the
         last week. All done using the praw package.
         """
 
-        try:
-            r = praw.Reddit(user_agent='Spotty v0.1')
-            self._potential_tracks = r.get_subreddit(
+        self._potential_tracks = session.get_subreddit(
                 self._sub_reddit).get_top_from_week(limit=100)
 
-        except requests.HTTPError as e:
 
-            if e.errno in [429, 500, 502, 503, 504]:
-                print("Reddit is down (error %s), sleeping..." % e.errno)
-                time.sleep(60)
-                pass
-            else:
-                raise
+    def sub_scraper(self):
+        """
+        Check for title - artist structure in titles scraped from subreddit,
+        adding valid ones to _scraped_tracks.
+        """
 
-        except Exception as e:
+        for submission in self._potential_tracks:
 
-            print("couldn't Reddit: %s" % str(e))
-            raise
-
-        def track_grabber(self):
-            """
-            Helper for validating 'artist - title' structure of scraped posts.
-            """
-            for submission in self._potential_tracks:
-
-                if re.match('\d{0,5} :: (\w.+) \-\-?', str(submission)):
-                    artist = re.match('\d{0,5} :: (\w.+) \-\-?',
-                                      str(submission))
-                    if re.match('\w.+ --? (\w.+) \[', str(submission)):
-                        title = re.match('\w.+ --? (\w.+) \[', str(submission))
-                    else:
-                        continue
+            if re.match('\d{0,5} :: (\w.+) \-\-?', str(submission)):
+                artist = re.match('\d{0,5} :: (\w.+) \-\-?',
+                                  str(submission))
+                if re.match('\w.+ --? (\w.+) \[', str(submission)):
+                    title = re.match('\w.+ --? (\w.+) \[', str(submission))
                 else:
                     continue
+            else:
+                continue
 
-                # Add valid titles to list
-                self._scraped_tracks.append([artist.group(1), title.group(1)])
-
-        track_grabber(self)
+            # Add valid titles to list
+            self._scraped_tracks.append([artist.group(1), title.group(1)])
 
     def search(self):
         """
@@ -241,6 +248,7 @@ def main():
         new_playlist = PlaylistBuilder('listentothis')
 
     new_playlist.key_location_setup()
+    new_playlist.reddit_scrape(new_playlist.reddit_connection())
     new_playlist.session_init()
     new_playlist.sub_scraper()
     new_playlist.search()

@@ -237,8 +237,6 @@ def main():
         new_playlist = PlaylistBuilder('listentothis', args.keyfile)
     else:
         new_playlist = PlaylistBuilder('listentothis')
-    import pdb
-    pdb.set_trace()
     new_playlist.key_location_setup()
     new_playlist.reddit_scrape(new_playlist.reddit_connection())
     new_playlist.track_validator()

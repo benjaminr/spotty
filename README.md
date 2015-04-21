@@ -11,9 +11,9 @@ Script for scraping the 'listentothis' subreddit and generating a Spotify playli
 
 Compatible with Python 2.7 and 3.4.
 
-'''bash
+```bash
 python setup.py install
-'''
+```
 
 ## Usage
 

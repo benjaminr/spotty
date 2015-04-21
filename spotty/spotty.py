@@ -1,6 +1,5 @@
 
 # coding=utf-8
-
 import argparse
 import praw
 import re
@@ -91,14 +90,8 @@ class PlaylistBuilder:
         """
 
         try:
-            logged_in_event = threading.Event()
-            session = sp.Session(config=self.key_location_setup())
-            username = raw_input('Username: ')
-            password = getpass.getpass('Password: ')
-            session.login(username, password, remember_me=True)
 
-            loop = sp.EventLoop(session)
-            loop.start()
+            logged_in_event = threading.Event()
 
             def connection_state_listener(_session):
                 """
@@ -106,23 +99,21 @@ class PlaylistBuilder:
                 """
                 if session.connection.state is sp.ConnectionState.LOGGED_IN:
                     logged_in_event.set()
-                elif session.connection.state is sp.ConnectionState.LOGGED_OUT:
-                    logged_in_event.set()
 
-            """
-            Registration of a listener for the session that will be triggered
-            upon a CONNCECTION_STATE_UPDATED event. The
-            connection_state_listener will be triggered, if LOGGED_IN, the
-            thread will awaken.
-            """
+            session = sp.Session(config=self.key_location_setup())
+            loop = sp.EventLoop(session)
+            loop.start()
             session.on(sp.SessionEvent.CONNECTION_STATE_UPDATED,
                        connection_state_listener)
-
+            username = input('Username: ')
+            password = getpass.getpass('Password: ')
+            session.login(username, password, remember_me=True)
+            logged_in_event.wait()
             self._session = session
 
-        except Exception:
+        except Exception as e:
 
-            print(Exception)
+            print(e, e.args)
 
     def reddit_connection(self):
         """
@@ -156,7 +147,7 @@ class PlaylistBuilder:
                 self._sub_reddit).get_top_from_week(limit=100)
 
 
-    def sub_scraper(self):
+    def track_validator(self):
         """
         Check for title - artist structure in titles scraped from subreddit,
         adding valid ones to _scraped_tracks.
@@ -246,11 +237,10 @@ def main():
         new_playlist = PlaylistBuilder('listentothis', args.keyfile)
     else:
         new_playlist = PlaylistBuilder('listentothis')
-
     new_playlist.key_location_setup()
     new_playlist.reddit_scrape(new_playlist.reddit_connection())
+    new_playlist.track_validator()
     new_playlist.session_init()
-    new_playlist.sub_scraper()
     new_playlist.search()
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import spotify as sp
 import getpass
 import threading
 import os
+import sys
 import platform
 import requests
 import time
@@ -105,7 +106,10 @@ class PlaylistBuilder:
             loop.start()
             session.on(sp.SessionEvent.CONNECTION_STATE_UPDATED,
                        connection_state_listener)
-            username = input('Username: ')
+            if sys.version_info.major == 2:
+                username = raw_input('Username: ')
+            elif sys.version_info.major == 3:
+                username = input('Username: ')
             password = getpass.getpass('Password: ')
             session.login(username, password, remember_me=True)
             logged_in_event.wait()
@@ -152,14 +156,15 @@ class PlaylistBuilder:
         Check for title - artist structure in titles scraped from subreddit,
         adding valid ones to _scraped_tracks.
         """
+        artistRegex = re.compile('\d{0,5} :: (\w.+) \-\-?')
+        titleRegex = re.compile('\w.+ --? (\w.+) \[')
 
         for submission in self._potential_tracks:
-
-            if re.match('\d{0,5} :: (\w.+) \-\-?', str(submission)):
-                artist = re.match('\d{0,5} :: (\w.+) \-\-?',
+            if re.match(artistRegex, str(submission)):
+                artist = re.match(artistRegex,
                                   str(submission))
-                if re.match('\w.+ --? (\w.+) \[', str(submission)):
-                    title = re.match('\w.+ --? (\w.+) \[', str(submission))
+                if re.match(titleRegex, str(submission)):
+                    title = re.match(titleRegex, str(submission))
                 else:
                     continue
             else:

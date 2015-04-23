@@ -1,4 +1,3 @@
-
 # coding=utf-8
 import argparse
 import praw
@@ -41,6 +40,14 @@ class PlaylistBuilder:
     @property
     def sub_reddit(self):
         return self._sub_reddit
+
+    def coroutine(func):
+        def start(*args, **kwargs):
+            cr = func(*args, **kwargs)
+            next(cr)
+            return cr
+
+        return start
 
     def os_default(self, _platform):
         """
@@ -140,66 +147,74 @@ class PlaylistBuilder:
         except Exception as e:
             print("couldn't Reddit: %s" % str(e))
 
+    @coroutine
+    def add_tracks_to_playlist(self):
+        """
+        Takes artist - title tuples sent from track_validator coroutine and
+        searches for existence on Spotify. If they exist, they are added to
+        the playlist.
+        """
+
+        try:
+            while True:
+                track = (yield)
+                searchtrack = self._session.search(
+                    'artist:"%s" title:"%s"' %
+                    (track[0].group(1), track[1].group(1))).load()
+                if len(searchtrack.tracks) >= 1:
+                    print(searchtrack.tracks[0].name + ' - ' +
+                          searchtrack.tracks[0].artists[0].load().name)
+                    self._playlist.add_tracks(searchtrack.tracks[0])
+
+        except GeneratorExit:
+            print("=== Done ===")
+
+    @coroutine
+    def track_validator(self):
+        """
+        Check for title - artist structure in titles scraped from subreddit,
+        sending valid ones to add_tracks_to_playlist coroutine.
+        """
+        attp = self.add_tracks_to_playlist()
+        artistRegex = re.compile('\d{0,5} :: (\w.+) \-\-?')
+        titleRegex = re.compile('\w.+ --? (\w.+) \[')
+        try:
+            while True:
+                submission = (yield)
+                if re.match(artistRegex, str(submission)):
+                    artist = re.match(artistRegex, str(submission))
+                    if re.match(titleRegex, str(submission)):
+                        title = re.match(titleRegex, str(submission))
+                        attp.send((artist, title))
+
+        except GeneratorExit:
+            attp.close()
+
     def reddit_scrape(self, session):
         """
         Method for scraping all potential tracks from a subreddit. This is
         currently defaulted to 'listentothis' and scrapes top posts from the
-        last week. All done using the praw package.
+        last week. All done using the praw package. Submissions are sent to
+        the track_validator coroutine.
         """
 
-        self._potential_tracks = session.get_subreddit(
-                self._sub_reddit).get_top_from_week(limit=100)
+        t = self.track_validator()
 
+        for submission in session.get_subreddit(
+            self._sub_reddit).get_top_from_week(limit=100):
+            t.send(submission)
+        t.close()
 
-    def track_validator(self):
-        """
-        Check for title - artist structure in titles scraped from subreddit,
-        adding valid ones to _scraped_tracks.
-        """
-        artistRegex = re.compile('\d{0,5} :: (\w.+) \-\-?')
-        titleRegex = re.compile('\w.+ --? (\w.+) \[')
-
-        for submission in self._potential_tracks:
-            if re.match(artistRegex, str(submission)):
-                artist = re.match(artistRegex,
-                                  str(submission))
-                if re.match(titleRegex, str(submission)):
-                    title = re.match(titleRegex, str(submission))
-                else:
-                    continue
-            else:
-                continue
-
-            # Add valid titles to list
-            self._scraped_tracks.append([artist.group(1), title.group(1)])
-
-    def search(self):
+    def build_playlist_container(self):
         """
         Use scraped tracks from subreddit to create a playlist.
         """
         # Create new playlist with subreddit as title
-        container = self._session.playlist_container
-        container.load()
-        new_playlist = container.add_new_playlist(
+        built_container = self._session.playlist_container
+        built_container.load()
+        playlist = built_container.add_new_playlist(
             self.sub_reddit + " - " + str(datetime.date.today()))
-
-        # Check tracks exist on Spotify, and if they do, add them to playlist
-        print("\nAdding tracks to playlist '%s - %s'...\n" %
-              (self.sub_reddit, datetime.date.today()))
-
-        for track in self._scraped_tracks:
-            searchtrack = self._session.search('artist:"%s" title:"%s"' %
-                                               (track[0], track[1])).load()
-            if len(searchtrack.tracks) >= 1:
-                print(searchtrack.tracks[0].name + ' - ' +
-                      searchtrack.tracks[0].artists[0].load().name)
-                new_playlist.add_tracks(searchtrack.tracks[0])
-
-        self._playlist = new_playlist
-
-        print(
-            "\nThanks for using Spotty. Now go and rock out to your brand new"
-            " playlist!")
+        self._playlist = playlist
 
 
 def main():
@@ -243,11 +258,10 @@ def main():
     else:
         new_playlist = PlaylistBuilder('listentothis')
     new_playlist.key_location_setup()
-    new_playlist.reddit_scrape(new_playlist.reddit_connection())
-    new_playlist.track_validator()
     new_playlist.session_init()
-    new_playlist.search()
+    new_playlist.build_playlist_container()
+    new_playlist.reddit_scrape(new_playlist.reddit_connection())
+
 
 if __name__ == "__main__":
     main()
-

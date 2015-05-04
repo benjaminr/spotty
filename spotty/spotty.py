@@ -1,5 +1,4 @@
 # coding=utf-8
-import argparse
 import praw
 import re
 import spotify as sp
@@ -11,7 +10,7 @@ import platform
 import requests
 import time
 import datetime
-
+import click
 
 class PlaylistBuilder:
     def __init__(self, sub_reddit, key_location=""):
@@ -147,27 +146,20 @@ class PlaylistBuilder:
         except Exception as e:
             print("couldn't Reddit: %s" % str(e))
 
-    @coroutine
-    def add_tracks_to_playlist(self):
+    def reddit_scrape(self, session):
         """
-        Takes artist - title tuples sent from track_validator coroutine and
-        searches for existence on Spotify. If they exist, they are added to
-        the playlist.
+        Method for scraping all potential tracks from a subreddit. This is
+        currently defaulted to 'listentothis' and scrapes top posts from the
+        last week. All done using the praw package. Submissions are sent to
+        the track_validator coroutine.
         """
 
-        try:
-            while True:
-                track = (yield)
-                searchtrack = self._session.search(
-                    'artist:"%s" title:"%s"' %
-                    (track[0].group(1), track[1].group(1))).load()
-                if len(searchtrack.tracks) >= 1:
-                    print(searchtrack.tracks[0].name + ' - ' +
-                          searchtrack.tracks[0].artists[0].load().name)
-                    self._playlist.add_tracks(searchtrack.tracks[0])
+        t = self.track_validator()
 
-        except GeneratorExit:
-            print("=== Done ===")
+        for submission in session.get_subreddit(
+            self._sub_reddit).get_top_from_week(limit=100):
+            t.send(submission)
+        t.close()
 
     @coroutine
     def track_validator(self):
@@ -190,20 +182,27 @@ class PlaylistBuilder:
         except GeneratorExit:
             attp.close()
 
-    def reddit_scrape(self, session):
+    @coroutine
+    def add_tracks_to_playlist(self):
         """
-        Method for scraping all potential tracks from a subreddit. This is
-        currently defaulted to 'listentothis' and scrapes top posts from the
-        last week. All done using the praw package. Submissions are sent to
-        the track_validator coroutine.
+        Takes artist - title tuples sent from track_validator coroutine and
+        searches for existence on Spotify. If they exist, they are added to
+        the playlist.
         """
 
-        t = self.track_validator()
+        try:
+            while True:
+                track = (yield)
+                searchtrack = self._session.search(
+                    'artist:"%s" title:"%s"' %
+                    (track[0].group(1), track[1].group(1))).load()
+                if len(searchtrack.tracks) >= 1:
+                    print(searchtrack.tracks[0].name + ' - ' +
+                          searchtrack.tracks[0].artists[0].load().name)
+                    self._playlist.add_tracks(searchtrack.tracks[0])
 
-        for submission in session.get_subreddit(
-            self._sub_reddit).get_top_from_week(limit=100):
-            t.send(submission)
-        t.close()
+        except GeneratorExit:
+            print("=== Done ===")
 
     def build_playlist_container(self):
         """
@@ -247,20 +246,27 @@ def main():
 
     ''')
 
-    parser = argparse.ArgumentParser(description='Spotty')
-    parser.add_argument('keyfile',
-                        nargs='?',
-                        help='Specify the location of your keyfile.')
-    args = parser.parse_args()
+    def build_new_playlist(new_playlist):
+        new_playlist.key_location_setup()
+        new_playlist.session_init()
+        new_playlist.build_playlist_container()
+        new_playlist.reddit_scrape(new_playlist.reddit_connection())
 
-    if args.keyfile:
-        new_playlist = PlaylistBuilder('listentothis', args.keyfile)
-    else:
-        new_playlist = PlaylistBuilder('listentothis')
-    new_playlist.key_location_setup()
-    new_playlist.session_init()
-    new_playlist.build_playlist_container()
-    new_playlist.reddit_scrape(new_playlist.reddit_connection())
+    @click.command()
+    @click.argument('keyfile', required=False, nargs=1, type=click.Path(exists=True))
+    def parse_args(keyfile):
+        if keyfile:
+            click.echo("Keyfile: " + keyfile)
+            build_new_playlist(PlaylistBuilder('listentothis', keyfile))
+        else:
+            if click.confirm('Did you mean to use the default key location?'):
+                click.echo('You may continue...\n')
+                build_new_playlist(PlaylistBuilder('listentothis'))
+            else:
+                keyfile = click.prompt('Please enter a keyfile location', type=click.Path(exists=True))
+                build_new_playlist(PlaylistBuilder('listentothis', keyfile))
+
+    parse_args()
 
 
 if __name__ == "__main__":
